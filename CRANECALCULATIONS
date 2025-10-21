@@ -1,81 +1,115 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# -----------------------------
-# CONSTANTS
-# -----------------------------
-g = 9.81  # m/s²
+g = 9.81  # gravity (m/s²)
 
-# -----------------------------
-# CRANE GEOMETRY (meters)
-# -----------------------------
-d1 = 0.95   # distance A-G
-d2 = 0.58   # distance G-C
-d3 = 2.74   # distance C-B
-d4 = 1.2    # arm base to joint
-d5 = 4.3    # arm length beyond joint
-WG_mass = 1  # kg (mass of crane)
+# -------------------------------------------------
+# GEOMETRY AND MASS (meters, kilograms)
+# -------------------------------------------------
+L_boom = 0.29     # boom length (pivot to hook)
+L_bp = 0.095      # distance from hook to piston joint
+L_piston = 0.31   # hydraulic piston length
+H_mast = 0.46     # vertical mast height
+L_base = 0.40     # distance between rear and front wheels
+H_wheel = 0.035   # height of wheel center
+m_crane = 1.0     # crane mass (kg)
+W_crane = m_crane * g
 
-WG = WG_mass * g  # N
-
-# -----------------------------
-# FUNCTIONS
-# -----------------------------
-
-def reactions(WG, WL, d1, d2, d3, d4, d5, theta_deg):
-    theta = np.radians(theta_deg)
-    xB = d1 + d2 + d3
-    xG = d1
-    xC = d1 + d2
-    xF = xC + (d4 + d5) * np.sin(theta)
-    By = (WG * xG + WL * xF) / xB
-    Ay = WG + WL - By
-    return Ay, By, xF
-
-def max_load(WG, d2, d3, d4, d5, theta_deg):
-    theta = np.radians(theta_deg)
-    rG = d2 + d3
-    rF = (d4 + d5) * np.cos(theta) - d3
-    if rF <= 0:
-        return np.nan
-    return WG * rG / rF  # in N
-
-def internal_forces(WL, theta_deg, d4, d5):
+# -------------------------------------------------
+# STATIC FUNCTIONS
+# -------------------------------------------------
+def max_load_before_tipping(W_crane, L_base, L_boom, theta_deg):
     """
-    Simplified: compute boom and cylinder forces assuming
-    triangle geometry where boom and cylinder form a pin-jointed triangle.
+    Moment equilibrium about front wheels.
     """
     theta = np.radians(theta_deg)
-    F_boom = WL / np.cos(theta)  # compressive load approximation
-    F_cyl = WL * np.sin(theta)   # tensile component approximation
-    return F_boom, F_cyl
+    x_CG = 0.1 * L_base        # assume crane CG at 10% of base length
+    x_hook = L_base + L_boom * np.cos(theta)
+    x_base = L_base
+    return W_crane * x_CG / (x_hook - x_base)
 
-# -----------------------------
+def wheel_reactions(W_crane, W_load, L_base, L_boom, theta_deg):
+    theta = np.radians(theta_deg)
+    x_CG = 0.1 * L_base
+    x_hook = L_base + L_boom * np.cos(theta)
+    R_front = (W_crane * x_CG + W_load * x_hook) / L_base
+    R_rear = W_crane + W_load - R_front
+    return R_rear, R_front
+
+def member_forces(W_load, theta_deg):
+    """
+    Estimate internal forces in boom, piston, and mast
+    using geometry of linkage (simplified planar statics).
+    """
+    theta = np.radians(theta_deg)
+    phi = np.radians(45)  # approximate angle of piston
+    F_boom = W_load * np.sin(phi) / np.sin(theta + phi)   # compression
+    F_piston = W_load * np.sin(theta) / np.sin(theta + phi)  # tension
+    F_mast = F_boom * np.cos(theta)                        # compression
+    return F_boom, F_piston, F_mast
+
+# -------------------------------------------------
 # RANGE ANALYSIS
-# -----------------------------
-angles = np.linspace(15, 70, 200)
-Ay_vals, By_vals, Wmax_vals = [], [], []
-Fboom_vals, Fcyl_vals = [], []
+# -------------------------------------------------
+angles = np.linspace(20, 70, 150)
+Wmax_vals, Rrear_vals, Rfront_vals, Fboom_vals, Fpiston_vals, Fmast_vals = [], [], [], [], [], []
 
 for th in angles:
-    Wmax = max_load(WG, d2, d3, d4, d5, th)
-    # Assume lifting near limit for internal analysis
-    Fboom, Fcyl = internal_forces(Wmax, th, d4, d5)
-    WL = Wmax  # using the maximum load for reaction plotting
-    Ay, By, _ = reactions(WG, WL, d1, d2, d3, d4, d5, th)
-    Ay_vals.append(Ay)
-    By_vals.append(By)
+    Wmax = max_load_before_tipping(W_crane, L_base, L_boom, th)
+    Rr, Rf = wheel_reactions(W_crane, Wmax, L_base, L_boom, th)
+    Fb, Fp, Fm = member_forces(Wmax, th)
     Wmax_vals.append(Wmax)
-    Fboom_vals.append(Fboom)
-    Fcyl_vals.append(Fcyl)
+    Rrear_vals.append(Rr)
+    Rfront_vals.append(Rf)
+    Fboom_vals.append(Fb)
+    Fpiston_vals.append(Fp)
+    Fmast_vals.append(Fm)
 
-# -----------------------------
-# NUMERICAL EXAMPLE AT θ = 40°
-# -----------------------------
+# -------------------------------------------------
+# SAMPLE STATE (40°)
+# -------------------------------------------------
 theta_test = 40
-Wmax_test = max_load(WG, d2, d3, d4, d5, theta_test)
-Fboom_test, Fcyl_test = internal_forces(Wmax_test, theta_test, d4, d5)
-Ay_test, By_test, xF_test = reactions(WG, Wmax_test, d1, d2, d3, d4, d5, theta_test)
+Wmax_test = max_load_before_tipping(W_crane, L_base, L_boom, theta_test)
+Rr, Rf = wheel_reactions(W_crane, Wmax_test, L_base, L_boom, theta_test)
+Fb, Fp, Fm = member_forces(Wmax_test, theta_test)
 
-print(f"\n=== Crane Analysis at θ = {theta_test}° ===")
-print(f"Max Load (before tipping): {Wmax_test/9.81:.2f} kg ({Wmax_test:.1f} N)")
+print(f"\n=== ENGINE HOIST STATIC ANALYSIS ===")
+print(f"Boom angle: {theta_test}°")
+print(f"Max load before tipping: {Wmax_test/9.81:.2f} kg ({Wmax_test:.2f} N)")
+print(f"Rear wheel reaction: {Rr:.2f} N")
+print(f"Front wheel reaction: {Rf:.2f} N")
+print(f"Boom axial force: {Fb:.2f} N (compression)")
+print(f"Piston axial force: {Fp:.2f} N (tension)")
+print(f"Mast compression force: {Fm:.2f} N")
+
+# -------------------------------------------------
+# PLOTS
+# -------------------------------------------------
+plt.figure(figsize=(10,6))
+plt.plot(angles, np.array(Wmax_vals)/9.81, color='orange', label='Max Load (kg)')
+plt.xlabel("Boom Angle (°)")
+plt.ylabel("Max Load (kg)")
+plt.title("Maximum Load vs Boom Angle")
+plt.grid(True)
+plt.legend()
+
+plt.figure(figsize=(10,6))
+plt.plot(angles, Fboom_vals, label="Boom Force (N)")
+plt.plot(angles, Fpiston_vals, label="Piston Force (N)")
+plt.plot(angles, Fmast_vals, label="Mast Force (N)")
+plt.xlabel("Boom Angle (°)")
+plt.ylabel("Axial Force (N)")
+plt.title("Member Forces vs Boom Angle")
+plt.grid(True)
+plt.legend()
+
+plt.figure(figsize=(10,6))
+plt.plot(angles, Rrear_vals, label="Rear Wheel (N)")
+plt.plot(angles, Rfront_vals, label="Front Wheel (N)")
+plt.xlabel("Boom Angle (°)")
+plt.ylabel("Reaction Force (N)")
+plt.title("Wheel Reactions vs Boom Angle")
+plt.grid(True)
+plt.legend()
+
+plt.show()
