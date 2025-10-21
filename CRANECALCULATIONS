@@ -1,0 +1,81 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# CONSTANTS
+# -----------------------------
+g = 9.81  # m/s²
+
+# -----------------------------
+# CRANE GEOMETRY (meters)
+# -----------------------------
+d1 = 0.95   # distance A-G
+d2 = 0.58   # distance G-C
+d3 = 2.74   # distance C-B
+d4 = 1.2    # arm base to joint
+d5 = 4.3    # arm length beyond joint
+WG_mass = 1  # kg (mass of crane)
+
+WG = WG_mass * g  # N
+
+# -----------------------------
+# FUNCTIONS
+# -----------------------------
+
+def reactions(WG, WL, d1, d2, d3, d4, d5, theta_deg):
+    theta = np.radians(theta_deg)
+    xB = d1 + d2 + d3
+    xG = d1
+    xC = d1 + d2
+    xF = xC + (d4 + d5) * np.sin(theta)
+    By = (WG * xG + WL * xF) / xB
+    Ay = WG + WL - By
+    return Ay, By, xF
+
+def max_load(WG, d2, d3, d4, d5, theta_deg):
+    theta = np.radians(theta_deg)
+    rG = d2 + d3
+    rF = (d4 + d5) * np.cos(theta) - d3
+    if rF <= 0:
+        return np.nan
+    return WG * rG / rF  # in N
+
+def internal_forces(WL, theta_deg, d4, d5):
+    """
+    Simplified: compute boom and cylinder forces assuming
+    triangle geometry where boom and cylinder form a pin-jointed triangle.
+    """
+    theta = np.radians(theta_deg)
+    F_boom = WL / np.cos(theta)  # compressive load approximation
+    F_cyl = WL * np.sin(theta)   # tensile component approximation
+    return F_boom, F_cyl
+
+# -----------------------------
+# RANGE ANALYSIS
+# -----------------------------
+angles = np.linspace(15, 70, 200)
+Ay_vals, By_vals, Wmax_vals = [], [], []
+Fboom_vals, Fcyl_vals = [], []
+
+for th in angles:
+    Wmax = max_load(WG, d2, d3, d4, d5, th)
+    # Assume lifting near limit for internal analysis
+    Fboom, Fcyl = internal_forces(Wmax, th, d4, d5)
+    WL = Wmax  # using the maximum load for reaction plotting
+    Ay, By, _ = reactions(WG, WL, d1, d2, d3, d4, d5, th)
+    Ay_vals.append(Ay)
+    By_vals.append(By)
+    Wmax_vals.append(Wmax)
+    Fboom_vals.append(Fboom)
+    Fcyl_vals.append(Fcyl)
+
+# -----------------------------
+# NUMERICAL EXAMPLE AT θ = 40°
+# -----------------------------
+theta_test = 40
+Wmax_test = max_load(WG, d2, d3, d4, d5, theta_test)
+Fboom_test, Fcyl_test = internal_forces(Wmax_test, theta_test, d4, d5)
+Ay_test, By_test, xF_test = reactions(WG, Wmax_test, d1, d2, d3, d4, d5, theta_test)
+
+print(f"\n=== Crane Analysis at θ = {theta_test}° ===")
+print(f"Max Load (before tipping): {Wmax_test/9.81:.2f} kg ({Wmax_test:.1f} N)")
